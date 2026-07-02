@@ -1,0 +1,11 @@
+__pycache__
+
+.venv
+.conda
+
+.vscode
+.idea
+
+checkpoints
+data
+results
