@@ -12,6 +12,7 @@ from util import (
     load_features, 
     load_truths,
     compute_class_weights,
+    get_current_timestamp,
     f_score,
     edit_score,
     plot_temporal_results
@@ -65,15 +66,14 @@ def train(
 
         if auto_save and epoch % 5 == 0:
             import os
-            from datetime import datetime
             os.makedirs(os.path.dirname(save_prefix), exist_ok=True)
-            t = datetime.now().strftime("%Y%m%d_%H%M%S")
-            torch.save(model.state_dict(), f"{save_prefix}-{epoch}-{t}.pt")
+            torch.save(model.state_dict(), f"{save_prefix}-{epoch}-{get_current_timestamp()}.pt")
 
 def eval(
     model,
     dataloader,
     args,
+    model_path,
     visualize=False,
 ):
     model.eval()
@@ -138,7 +138,10 @@ def eval(
         f1_scores[o] = f1 * 100
 
     result = {
-        "total_frames": len(pred_labels),
+        "timestamp": get_current_timestamp(),
+        "model": args.model,
+        "path": model_path,
+        "num_params": sum(p.numel() for p in model.parameters()),
         "acc": round(acc, 2),
         "edit": round(edit, 2),
         "f1": {k: round(v, 2) for k, v in f1_scores.items()}
@@ -149,11 +152,12 @@ def eval(
 
     if visualize and args.output_dir:
         import os
-        from datetime import datetime
-        os.makedirs(f"{args.output_dir}/{args.model}", exist_ok=True)
-        t = datetime.now().strftime("%Y%m%d_%H%M%S")
-        plot_temporal_results(pred_labels, gt_labels, result, 
-                              output_path=f"{args.output_dir}/{args.model}/w{args.window}-{t}.png")
+        os.makedirs(f"{args.output_dir}", exist_ok=True)
+        plot_temporal_results(
+            pred_labels, gt_labels,
+            metadata=result,
+            output_path=f"{args.output_dir}/{args.model}-{get_current_timestamp()}.png",
+        )
 
     return result
 
@@ -180,8 +184,9 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", action="store_true", help="是否打印训练损失")
 
     # === persist ===
-    parser.add_argument("--save_dir", type=str, default="checkpoints", help="模型保存目录")
-    parser.add_argument("--auto_save", action="store_true", help="是否自动保存")
+    parser.add_argument("--auto_save", action="store_true", help="是否保存中间结果")
+    parser.add_argument("--save_dir", type=str, default="checkpoints", help="检查点保存目录")
+    parser.add_argument("--export_dir", type=str, default="weights", help="模型权重保存目录")
 
     # === eval ===
     parser.add_argument("--visualize", action="store_true", help="是否生成可视化结果")
@@ -199,9 +204,10 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown model: {args.model}")
 
+    model_path = None
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume, map_location=device))
-
+        model_path = args.resume
     model = model.to(device)
 
     # ===== Dataset =====
@@ -233,6 +239,12 @@ if __name__ == "__main__":
               verbose=args.verbose, auto_save=args.auto_save, 
               save_prefix=f"{args.save_dir}/{args.model}-w{args.window}")
 
+        if args.export_dir:
+            import os
+            os.makedirs(args.export_dir, exist_ok=True)
+            model_path = f"{args.export_dir}/{args.model}-final-{get_current_timestamp()}.pt"
+            torch.save(model.state_dict(), model_path)
+
     # ===== Evaluation =====
     if args.mode in ["full", "eval"]:
-        eval(model, test_loader, visualize=True, args=args)
+        eval(model, test_loader, visualize=True, args=args, model_path=model_path)

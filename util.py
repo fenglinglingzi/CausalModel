@@ -42,6 +42,9 @@ def compute_class_weights(dataloader):
 
     return weights
 
+def get_current_timestamp():
+    from datetime import datetime
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 def get_labels_start_end_time(frame_wise_labels, bg_class=["background"]):
     labels = []
@@ -122,8 +125,10 @@ def f_score(recognized, ground_truth, overlap, bg_class=["background"]):
 
 
 
-def plot_temporal_results(recognitions: list[str], ground_truths: list[str], result: dict[float],
-                          output_path, title="Action Segmentation"):
+def plot_temporal_results(
+        recognitions: list[str], ground_truths: list[str],
+        metadata: dict, output_path
+    ):
     # 1. 将动作标签映射为数字 ID
     actions = sorted(list(set(ground_truths + recognitions)))
     action2id = {a: i for i, a in enumerate(actions)}
@@ -143,11 +148,15 @@ def plot_temporal_results(recognitions: list[str], ground_truths: list[str], res
                    facecolors=[plt.cm.tab20(i % 20) for i in pred_ids])
 
     metrics_text = (
-        f"Acc: {result['acc']:.2f}\n"
-        f"Edit: {result['edit']:.2f}\n"
-        f"F1@0.1: {result['f1'][0.1]:.2f}\n"
-        f"F1@0.25: {result['f1'][0.25]:.2f}\n"
-        f"F1@0.5: {result['f1'][0.5]:.2f}\n"
+        f"timestamp: {metadata['timestamp']}\n"
+        f"model: {metadata['model']}\n"
+        f"path: {metadata['path']}\n"
+        f"num_params: {metadata['num_params']}\n"
+        f"Acc: {metadata['acc']:.2f}\n"
+        f"Edit: {metadata['edit']:.2f}\n"
+        f"F1@0.1: {metadata['f1'][0.1]:.2f}\n"
+        f"F1@0.25: {metadata['f1'][0.25]:.2f}\n"
+        f"F1@0.5: {metadata['f1'][0.5]:.2f}\n"
     )
 
     ax.annotate(
@@ -173,7 +182,7 @@ def plot_temporal_results(recognitions: list[str], ground_truths: list[str], res
 
     ax.set_yticks([1.6, 0.6])
     ax.set_yticklabels(['Ground Truth', 'Prediction'])
-    ax.set_title(f"{title}")
+    ax.set_title(f"Action Segmentation")
 
     # 4. 制作图例
     from matplotlib.lines import Line2D
