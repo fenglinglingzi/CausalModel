@@ -18,6 +18,7 @@ from util import (
     edit_score,
     plot_temporal_results
 )
+from lab import load_data_json
 
 
 MAPPING_PATH = "data/Endo_Project/mapping.txt"
@@ -222,10 +223,19 @@ if __name__ == "__main__":
     mappings = load_mappings(MAPPING_PATH)
 
     features, truths = [], []
+    # 暂时复用 MS-TCN2 训练数据
     for name in video_names:
         features.append(load_features(FEATURES_DIR, name))
         truths.append(load_truths(TRUTHS_DIR, name, mappings=mappings))
 
+    # # Label Studio 数据加载示例
+    # for id in [50, 51, 52, 53, 54, 55, 56, 58, 59]:
+    #     print(id)
+    #     feats, trs = load_data_json("path to LS json", id)
+    #     features.append(feats)
+    #     truths.append([mappings[tr] for tr in trs])
+
+    # 暂时用下标指定数据集，之后可以调整
     train_dataset = build_dataset(features, truths, idx=TRAIN_IDX, window=args.window)
     test_dataset = build_dataset(features, truths, idx=TEST_IDX, window=args.window)
 

@@ -221,14 +221,14 @@ def load_data_json(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
                 if type == "videorectangle":
                     label = f'{value["labels"][0]}{i}{j}'  # no multiple labels
                     total = value["framesCount"]
-                    objects.setdefault(label, []).extend(
-                        interpolate_sequence(value["sequence"], total)
-                    )
+                    frames = interpolate_sequence(value["sequence"], total)
+                    if len(frames) > 0:
+                        objects.setdefault(label, []).extend(frames)
 
                 if type == "timelinelabels":
                     ranges = value["ranges"]
                     for range in ranges:
-                        label = f'{value["timelinelabels"][0]}{i}{j}'  # no multiple labels  
+                        label = f'{value["timelinelabels"][0]}'  # no multiple labels  
                         start, end = range["start"], range["end"]
                         action_ranges.append((start, end, label))
 
@@ -283,7 +283,7 @@ def load_data_json_min(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
         for action in item.get("actions", []):
             ranges = action["ranges"]
             for range in ranges:
-                label = f'{action["timelinelabels"][0]}{idx}'  # no multiple labels
+                label = f'{action["timelinelabels"][0]}'  # no multiple labels
                 start, end = range["start"], range["end"]
                 action_ranges.append((start, end, label))
 
