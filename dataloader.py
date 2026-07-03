@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, ConcatDataset
-
+import numpy as np
 
 class EndoDataset(Dataset):
     def __init__(self, features, labels, window=64):
@@ -16,7 +16,7 @@ class EndoDataset(Dataset):
         y = self.y[idx + self.w - 1]
         return x, y
 
-def build_dataset(features, labels, idx, window=64):
+def build_dataset(features: list[np.ndarray], labels: list[list[int]], idx: list[int], window: int = 64):
     return ConcatDataset([
         EndoDataset(features[i], labels[i], window) for i in idx
     ])
