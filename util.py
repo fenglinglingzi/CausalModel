@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 from collections import Counter
@@ -45,6 +46,49 @@ def compute_class_weights(dataloader):
 def get_current_timestamp():
     from datetime import datetime
     return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+def causal_decision(last, pending, stable, count):
+
+    prob = torch.softmax(last, dim=-1).cpu().numpy()
+
+    idle_id, long_id, short_id = 0, 1, 2
+
+    C = len(prob)
+
+    transition_prior = np.zeros((C, C))
+
+    # 自转移偏好
+    transition_prior[idle_id, idle_id] = 2.0
+    transition_prior[long_id, long_id] = 2.0
+    transition_prior[short_id, short_id] = 1.5
+
+    # 动作间切换惩罚
+    transition_prior[long_id, short_id] = -1.0
+    transition_prior[short_id, long_id] = -1.0
+
+    # ===== 转移得分 =====
+    scores = np.zeros(C)
+    for j in range(C):
+        emit = np.log(prob[j] + 1e-8)
+        trans = transition_prior[stable, j]
+        scores[j] = emit + trans
+
+    candidate = np.argmax(scores)
+
+    # ===== Min Duration：和“待确认”比较 =====
+    MIN_DURATION = 25
+
+    if candidate == pending:
+        count += 1
+    else:
+        pending = candidate
+        count = 1
+
+    # ===== 稳定后才确认 =====
+    if count >= MIN_DURATION:
+        stable = pending if pending is not None else idle_id
+
+    return pending, stable, count
 
 def get_labels_start_end_time(frame_wise_labels, bg_class=["background"]):
     labels = []

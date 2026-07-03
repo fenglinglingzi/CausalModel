@@ -13,6 +13,7 @@ from util import (
     load_truths,
     compute_class_weights,
     get_current_timestamp,
+    causal_decision,
     f_score,
     edit_score,
     plot_temporal_results
@@ -32,7 +33,7 @@ video_names = [
 ]
 
 TRAIN_IDX = list(range(0, 16))
-TEST_IDX = list(range(16, 20))
+TEST_IDX = list(range(16, 20)) # [17]
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -87,7 +88,13 @@ def eval(
         preds = np.zeros(T, dtype=np.int64)
 
         # 补全前 window-1 帧
-        preds[:window-1] = 0
+        idle_id = 0
+        preds[:window-1] = idle_id
+
+        # ===== 决策状态 =====
+        pending = None     # 待确认状态
+        stable = idle_id   # 已确认状态（连续帧）
+        count = 0
         
         with torch.no_grad():
             for i in range(len(ds)):
@@ -97,7 +104,8 @@ def eval(
                 logits = model(x)            # (1, w, C)
                 last = logits[0, -1]
 
-                preds[i + window - 1] = last.argmax().item()
+                pending, stable, count = causal_decision(last, pending, stable, count)
+                preds[i + window - 1] = stable
 
         video_preds.append(preds)
         video_gts.append(ds.y.numpy())
