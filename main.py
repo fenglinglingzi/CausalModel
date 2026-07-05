@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 
+import os
 from tqdm import tqdm
 
 from dataloader import build_dataset
@@ -38,19 +39,40 @@ TEST_IDX = list(range(16, 20)) # [17]
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+def save_checkpoint(path: str, model: torch.nn.Module, optimizer: torch.optim.Optimizer, epoch: int):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    checkpoint = {
+        "epoch": epoch,
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.save(checkpoint, path)
+
+def load_checkpoint(path: str, model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+    checkpoint = torch.load(path, map_location=device)
+    model.load_state_dict(checkpoint["model"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    return checkpoint["epoch"] + 1
+
+
 def train(
     model, 
     dataloader, 
     optimizer, 
     criterion, 
     epochs, 
+    resume: str,
     save_prefix,
     verbose=False,
     auto_save=False,
 ):
     model.train()
 
-    for epoch in tqdm(range(1, epochs + 1)):
+    start_epoch = 1
+    if resume:
+        start_epoch = load_checkpoint(resume, model, optimizer)
+
+    for epoch in tqdm(range(start_epoch, epochs + 1)):
         for x, y in dataloader:
             x, y = x.to(device), y.to(device)
 
@@ -67,9 +89,8 @@ def train(
             print(f"Epoch {epoch:3d}  Loss {loss.item():.4f}")
 
         if auto_save and epoch % 5 == 0:
-            import os
-            os.makedirs(os.path.dirname(save_prefix), exist_ok=True)
-            torch.save(model.state_dict(), f"{save_prefix}-{epoch}-{get_current_timestamp()}.pt")
+            path = f"{save_prefix}-{epoch}-{get_current_timestamp()}.ckpt"
+            save_checkpoint(path, model, optimizer, epoch)
 
 def eval(
     model,
@@ -183,6 +204,7 @@ if __name__ == "__main__":
                         choices=["gru", "tcn", "transformer"])
     parser.add_argument("--input_dim", type=int, default=20, help="特征维度")
     parser.add_argument("--num_classes", type=int, default=3, help="类别数")
+    parser.add_argument("--load", type=str, default=None, help="加载模型权重")
     parser.add_argument("--resume", type=str, default=None, help="从指定检查点恢复训练")
 
     # === train ===
@@ -213,10 +235,9 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown model: {args.model}")
 
-    model_path = None
-    if args.resume is not None:
-        model.load_state_dict(torch.load(args.resume, map_location=device))
-        model_path = args.resume
+    model_path = args.load
+    if args.load:
+        model.load_state_dict(torch.load(args.load, map_location=device))
     model = model.to(device)
 
     # ===== Dataset =====
@@ -253,7 +274,7 @@ if __name__ == "__main__":
             dtype=torch.float32
         ).to(device))
 
-        train(model, train_loader, optimizer, criterion, args.epochs, 
+        train(model, train_loader, optimizer, criterion, args.epochs, args.resume,
               verbose=args.verbose, auto_save=args.auto_save, 
               save_prefix=f"{args.save_dir}/{args.model}-w{args.window}")
 
