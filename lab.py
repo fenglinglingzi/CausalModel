@@ -45,8 +45,8 @@ def interpolate_sequence(kf0: Dict, kf1: Dict):
 
     if kf0["enabled"]:
         f0, f1 = kf0["frame"], kf1["frame"]
-        x0, y0, w0, h0 = kf0["x"], kf0["y"], kf0["width"], kf0["height"]
-        x1, y1, w1, h1 = kf1["x"], kf1["y"], kf1["width"], kf1["height"]
+        x0, y0, w0, h0, r0 = kf0["x"], kf0["y"], kf0["width"], kf0["height"], kf0["rotation"]
+        x1, y1, w1, h1, r1 = kf1["x"], kf1["y"], kf1["width"], kf1["height"], kf1["rotation"]
         for f in range(f0, f1):
             alpha = (f - f0) / (f1 - f0)
 
@@ -55,11 +55,12 @@ def interpolate_sequence(kf0: Dict, kf1: Dict):
                 y0 + alpha * (y1 - y0),
                 w0 + alpha * (w1 - w0),
                 h0 + alpha * (h1 - h0),
+                r0 + alpha * (r1 - r0),
             )
 
     else:
         frames[kf0["frame"]] = (
-            kf0["x"], kf0["y"], kf0["width"], kf0["height"]
+            kf0["x"], kf0["y"], kf0["width"], kf0["height"], kf0["rotation"]
         )
 
     return frames
@@ -163,7 +164,7 @@ def from_ls_json(file_path: str, download: bool = False) -> Dict[int, Dict]:
     return results
 
 
-def from_ls_json_min(file_path: str) -> Dict[int, Dict]:
+def from_ls_json_min(file_path: str, download: bool = False) -> Dict[int, Dict]:
     """
     从 Label Studio 导出的 JSON 文件中解析视频标注结果。
 
@@ -201,6 +202,9 @@ def from_ls_json_min(file_path: str) -> Dict[int, Dict]:
     for item in data:
         objects = []
         actions = []
+
+        if download:
+            download_video(video=item["video"], id=item["id"])
 
         for object in item.get("objects", []):
             label = object["labels"][0]  # no multiple labels
