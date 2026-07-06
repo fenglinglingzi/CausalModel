@@ -3,8 +3,9 @@ import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 from collections import Counter
+from typing import Dict, List
 
-def load_mappings(file: str):
+def load_mappings(file: str = "data/Endo_Project/mapping.txt"):
     mapping = {}
     for line in Path(file).read_text().splitlines():
         idx, action = line.split()
@@ -18,13 +19,75 @@ def load_features(root: str, name: str):
     # 这里取转置
     return features.T
 
-def load_truths(root: str, name: str, mappings: dict):
+def load_truths(root: str, name: str, mappings: Dict):
     path = Path(root) / f"{name}.txt"
 
     with open(path) as f:
         labels = [line.strip() for line in f]
 
     return [mappings[lbl] for lbl in labels]
+
+def to_features(objects: Dict) -> np.ndarray:
+    """
+    将多个目标的轨迹数据转换为统一的特征矩阵。
+
+    参数
+    ----
+    objects : Dict[int, List[Tuple]]
+        目标轨迹信息 (frame_id → [(label1, bbox1), (label2, bbox2), ...])
+
+    返回
+    ----
+    features : np.ndarray
+        形状为 (T, N * 5) 的特征矩阵：
+        - T : 帧数
+        - N : 目标数
+        - 5 : [cx, cy, w, h, conf]
+
+    说明
+    ----
+    - cx, cy 为中心点坐标
+    - conf 暂时固定为 1.0
+    - 最终 reshape 是为了适配时序模型输入
+    """
+    features = []
+    for f, data in objects.items():
+        feats = []
+        for (label, bbox) in data:
+            # TODO: 根据 mapping 和 label 放置 bbox
+            if bbox:
+                x, y, w, h = bbox
+                cx, cy = x + w / 2, y + h / 2
+                # Label Studio 返回的是归一化后的数据
+                feats.extend([cx, cy, w, h, 1.0])
+            else:
+                feats.extend([0.0, 0.0, 0.0, 0.0, 1.0])
+        features.append(feats)
+
+    return np.array(features)
+
+def to_truths(actions: Dict, default: str = "Idle") -> List[str]:
+    """
+    将时间段标签转换为逐帧行为标签。
+
+    参数
+    ----
+    actions : Dict[int, List[str]]
+        行为时间段信息 (frame_id → [label1, label2, ...])
+
+    返回
+    ----
+    truths : List[str]
+        每一帧对应的行为标签
+    """
+    truths = []
+    mappings = load_mappings()
+    for f, action in actions.items():
+        if action:
+            truths.append(mappings[action])
+        else:
+            truths.append(mappings[default]) 
+    return truths
 
 def compute_class_weights(dataloader):
     counter = Counter()
@@ -170,11 +233,11 @@ def f_score(recognized, ground_truth, overlap, bg_class=["background"]):
 
 
 def plot_temporal_results(
-        recognitions: list[str], ground_truths: list[str],
-        metadata: dict, output_path
+        recognitions: List[str], ground_truths: List[str],
+        metadata: Dict, output_path
     ):
     # 1. 将动作标签映射为数字 ID
-    actions = sorted(list(set(ground_truths + recognitions)))
+    actions = sorted(List(set(ground_truths + recognitions)))
     action2id = {a: i for i, a in enumerate(actions)}
     
     gt_ids = [action2id[a] for a in ground_truths]
@@ -187,7 +250,7 @@ def plot_temporal_results(
     ax.broken_barh([(i, 1) for i in range(len(gt_ids))], (1.2, 0.8), 
                    facecolors=[plt.cm.tab20(i % 20) for i in gt_ids])
     
-    # 绘制 Prediction (下方)
+    # 绘制 PreDiction (下方)
     ax.broken_barh([(i, 1) for i in range(len(pred_ids))], (0.2, 0.8), 
                    facecolors=[plt.cm.tab20(i % 20) for i in pred_ids])
 
@@ -209,7 +272,7 @@ def plot_temporal_results(
         xycoords='axes fraction',
         fontsize=10,
         va='top', ha='left',
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8)
+        bbox=Dict(boxstyle="round", facecolor="white", alpha=0.8)
     )
 
     # 3. 美化
@@ -225,7 +288,7 @@ def plot_temporal_results(
     ax.set_xlabel("Time (s)")
 
     ax.set_yticks([1.6, 0.6])
-    ax.set_yticklabels(['Ground Truth', 'Prediction'])
+    ax.set_yticklabels(['Ground Truth', 'PreDiction'])
     ax.set_title(f"Action Segmentation")
 
     # 4. 制作图例
