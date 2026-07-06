@@ -41,7 +41,7 @@ def compute_class_weights(dataloader):
     max_w = max(weights.values())
     weights = {k: v / max_w for k, v in weights.items()}
 
-    return weights
+    return [weights[i] for i in sorted(weights.keys())]
 
 def get_current_timestamp():
     from datetime import datetime
