@@ -13,176 +13,79 @@
 """
 
 
-import json
-import numpy as np
-from typing import List, Tuple
+import json, os
+import requests
+from typing import List, Dict
 
+BASE_URL = "http://49.234.120.241:8080"
+VIDEO_DIR = "./video"
+TOKEN = ""
 
-def interpolate_sequence(sequence, total):
-    """
-    将稀疏的关键帧序列插值为完整帧序列。
+def download_video(video: str, id: int):
+    headers = {"Authorization": TOKEN}
+    url = BASE_URL + video
 
-    参数
-    ----
-    sequence : List[Dict]
-        关键帧列表
-    total : int
-        视频总帧数
+    try:
+        print(f"[INFO] Downloading video (id={id}, video={video}) ...")
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print(f"[ERROR] Download failed: {e}")
+        return
 
-    返回
-    ----
-    frames : List[Dict]
-        长度为 total 的完整帧序列，
-    """
-    if len(sequence) == 0:
-        return []
+    print(f"[SUCCESS] Download finished for id={id}")
 
-    # 确保按 frame 升序
-    seq = sorted(sequence, key=lambda kf: kf["frame"])
-    start, end = seq[0]["frame"], seq[-1]["frame"]
-    frames = []
+    os.makedirs(VIDEO_DIR, exist_ok=True)
+    path = os.path.join(VIDEO_DIR, f"{id}.mp4")
+    with open(path, "wb") as f:
+        f.write(r.content)
 
-    collected = set()
+def interpolate_sequence(kf0: Dict, kf1: Dict):
+    frames = {}
 
-    first = seq[0]
-    for f in range(1, first["frame"] + 1):
-        if f in collected:
-            continue
-        collected.add(f)
-        frames.append({
-            "frame": f,
-            "x": first["x"],
-            "y": first["y"],
-            "width": first["width"],
-            "height": first["height"],
-        })
-
-    for i in range(len(seq) - 1):
-        kf0, kf1 = seq[i], seq[i + 1]
-
+    if kf0["enabled"]:
         f0, f1 = kf0["frame"], kf1["frame"]
+        x0, y0, w0, h0 = kf0["x"], kf0["y"], kf0["width"], kf0["height"]
+        x1, y1, w1, h1 = kf1["x"], kf1["y"], kf1["width"], kf1["height"]
+        for f in range(f0, f1):
+            alpha = (f - f0) / (f1 - f0)
 
-        # 只处理在 [start, end] 内的区间
-        if f1 < start or f0 > end:
-            continue
+            frames[f] = (
+                x0 + alpha * (x1 - x0),
+                y0 + alpha * (y1 - y0),
+                w0 + alpha * (w1 - w0),
+                h0 + alpha * (h1 - h0),
+            )
 
-        for f in range(f0, f1 + 1):
-            if f in collected:
-                continue
-            collected.add(f)
-            if f == f0:
-                # 关键帧
-                frames.append({
-                    "frame": f,
-                    "x": kf0["x"],
-                    "y": kf0["y"],
-                    "width": kf0["width"],
-                    "height": kf0["height"],
-                })
-            else:
-                alpha = (f - f0) / (f1 - f0)
-                frames.append({
-                    "frame": f,
-                    "x": kf0["x"] + alpha * (kf1["x"] - kf0["x"]),
-                    "y": kf0["y"] + alpha * (kf1["y"] - kf0["y"]),
-                    "width": kf0["width"] + alpha * (kf1["width"] - kf0["width"]),
-                    "height": kf0["height"] + alpha * (kf1["height"] - kf0["height"]),
-                })
-
-    last = seq[-1]
-    for f in range(last["frame"], total + 1):
-        if f in collected:
-            continue
-        collected.add(f)
-        frames.append({
-            "frame": f,
-            "x": last["x"],
-            "y": last["y"],
-            "width": last["width"],
-            "height": last["height"],
-        })
-
-    assert len(frames) == total, (
-        f"expected {total}, actual {len(frames)}\n"
-        f"current {collected}\n"
-    )
+    else:
+        frames[kf0["frame"]] = (
+            kf0["x"], kf0["y"], kf0["width"], kf0["height"]
+        )
 
     return frames
 
+def merge_objects(objects: List[Dict], total_frames: int):
+    result = {t: [] for t in range(1, total_frames + 1)}
+    for object in objects:
+        label, frames = object["label"], object["frames"]
+        for f, bbox in frames.items():
+            if not bbox:
+                continue
+            result[f].append({"label": label, "bbox": bbox})
+    return result
 
-def to_features(objects) -> np.ndarray:
+def merge_actions(actions: List[Dict], total_frames: int):
+    result = {t: [] for t in range(1, total_frames + 1)}
+    for action in actions:
+        label, (start, end) = action["label"], action["range"]
+        for f in range(start, end):
+            result[f].append({"label": label})
+    return result
+
+
+def from_ls_json(file_path: str, download: bool = False) -> Dict[int, Dict]:
     """
-    将多个目标的轨迹数据转换为统一的特征矩阵。
-
-    参数
-    ----
-    objects : Dict[str, List[Dict]]
-        key   : 目标名称（如 hand0, scope1）
-        value : 每一帧的 bbox 信息，包含：
-                x, y, width, height
-
-    返回
-    ----
-    features : np.ndarray
-        形状为 (T, N * 5) 的特征矩阵：
-        - T : 帧数
-        - N : 目标数
-        - 5 : [cx, cy, w, h, conf]
-
-    说明
-    ----
-    - cx, cy 为中心点坐标
-    - conf 暂时固定为 1.0
-    - 最终 reshape 是为了适配时序模型输入
-    """
-
-    features = []
-    F = len(objects)
-    for _, frames in objects.items():
-        feats = []
-        for frame in frames:
-            x, y, w, h = frame['x'], frame['y'], frame['width'], frame['height']
-            cx, cy = x + w / 2, y + h / 2
-            # Label Studio 返回的是归一化后的数据
-            conf = 1.0  # TODO
-            feats.append([cx, cy, w, h, conf])
-        features.append(feats)
-    features = np.array(features).transpose(1, 0, 2).reshape(-1, F * 5)
-    return features
-
-
-def to_truths(ranges: List[Tuple[int, int, str]], total: int, default: str = "Idle") -> List[str]:
-    """
-    将时间段标签转换为逐帧行为标签。
-
-    参数
-    ----
-    ranges : List[Tuple[int, int, str]]
-        (start_frame, end_frame, label)
-    total : int
-        视频总帧数
-    default : str
-        默认标签（无行为时）
-
-    返回
-    ----
-    truths : List[str]
-        每一帧对应的行为标签，长度 = total
-    """
-
-    truths = [default] * total
-
-    for start, end, label in ranges:
-        for f in range(start, end + 1):
-            if 1 <= f <= total:
-                truths[f - 1] = label
-
-    return truths
-
-
-def load_data_json(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
-    """
-    从 Label Studio 导出的 JSON 格式文件中加载指定视频 ID 的数据。
+    从 Label Studio 导出的 JSON 文件中解析视频标注结果。
 
     支持：
     - videorectangle ：目标轨迹
@@ -192,56 +95,77 @@ def load_data_json(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
     ----
     file_path : str
         JSON 文件路径
-    id : int
-        视频 ID（Label Studio 中的 task id）
+    download : bool
+        是否下载原视频文件
 
     返回
     ----
-    features : np.ndarray
-        特征矩阵，shape = (T, N * 5)
-    truths : List[str]
-        每一帧的行为标签
+    Dict[int, Dict]
+        以视频 ID（Label Studio 的 task id）为键的字典，每个视频包含：
+        - "objects" : dict
+            目标轨迹信息，结构为
+            { frame_id: { "label": str, "bbox": (x, y, w, h) } }
+
+        - "actions" : dict
+            行为时间段信息，结构为
+            { frame_id: { "label": str } }
+
     """
 
     with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    objects = {}
-    action_ranges = []
-    total = 0
+    results = {}
+    total_frames = 0
 
     for item in data:
-        if not int(item["id"] == id):
-            continue
+        objects = []
+        actions = []
 
-        for i, anno in enumerate(item["annotations"]):
-            for j, res in enumerate(anno["result"]):
+        if download:
+            download_video(video=item["data"]["video"], id=item["id"])
+
+        for anno in item["annotations"]:
+            for res in anno["result"]:
                 value, type = res["value"], res["type"]
 
+                # 物体识别框
                 if type == "videorectangle":
-                    label = f'{value["labels"][0]}{i}{j}'  # no multiple labels
-                    total = value["framesCount"]
-                    frames = interpolate_sequence(value["sequence"], total)
-                    if len(frames) > 0:
-                        objects.setdefault(label, []).extend(frames)
+                    label = value["labels"][0]  # no multiple labels
+                    total_frames = value["framesCount"]
+                    sequence = value["sequence"]
 
+                    frames = {t: {} for t in range(1, total_frames + 1)}
+                    for i in range(len(sequence)):
+                        kf0 = sequence[i]
+                        kf1 = sequence[i+1] if i < len(sequence) - 1 else sequence[i]
+
+                        # LS 原始数据只有关键帧
+                        # 需要通过插值逻辑补充过渡帧
+                        for f, bbox in interpolate_sequence(kf0, kf1).items():
+                            frames[f] = bbox
+
+                    objects.append({"label": label, "frames": frames})
+
+                # 时序标签
                 if type == "timelinelabels":
-                    ranges = value["ranges"]
-                    for range in ranges:
-                        label = f'{value["timelinelabels"][0]}'  # no multiple labels  
-                        start, end = range["start"], range["end"]
-                        action_ranges.append((start, end, label))
+                    label = value["timelinelabels"][0]  # no multiple labels  
+                    rg = value["ranges"][0]             # no multiple ranges
+                    start, end = rg["start"], rg["end"]
 
-        features = to_features(objects)
-        truths = to_truths(action_ranges, total)
-        return features, truths
+                    actions.append({"label": label, "range": (start, end)})
 
-    raise ValueError(f"Id {id} not found")
+        results[item["id"]] = {
+            "objects": merge_objects(objects, total_frames),
+            "actions": merge_actions(actions, total_frames),
+        }
+
+    return results
 
 
-def load_data_json_min(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
+def from_ls_json_min(file_path: str) -> Dict[int, Dict]:
     """
-    从 Label Studio 导出的 JSON-MIN 格式文件中加载指定视频 ID 的数据。
+    从 Label Studio 导出的 JSON 文件中解析视频标注结果。
 
     支持：
     - objects ：目标轨迹
@@ -251,44 +175,60 @@ def load_data_json_min(file_path: str, id: int) -> Tuple[np.ndarray, List[str]]:
     ----
     file_path : str
         JSON 文件路径
-    id : int
-        视频 ID（Label Studio 中的 task id）
+    download : bool
+        是否下载原视频文件
 
     返回
     ----
-    features : np.ndarray
-        特征矩阵，shape = (T, N * 5)
-    truths : List[str]
-        每一帧的行为标签
+    Dict[int, Dict]
+        以视频 ID（Label Studio 的 task id）为键的字典，每个视频包含：
+        - "objects" : dict
+            目标轨迹信息，结构为
+            { frame_id: { "label": str, "bbox": (x, y, w, h) } }
+
+        - "actions" : dict
+            行为时间段信息，结构为
+            { frame_id: { "label": str } }
+
     """
 
     with open(file_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    objects = {}
-    action_ranges = []
-    total = 0
+    results = {}
+    total_frames = 0
 
     for item in data:
-        if not int(item["id"] == id):
-            continue
+        objects = []
+        actions = []
 
-        for idx, object in enumerate(item.get("objects", [])):
-            label = f'{object["labels"][0]}{idx}'  # no multiple labels
-            total = object["framesCount"]
-            objects.setdefault(label, []).extend(
-                interpolate_sequence(object["sequence"], total)
-            )
+        for object in item.get("objects", []):
+            label = object["labels"][0]  # no multiple labels
+            total_frames = object["framesCount"]
+            sequence = object["sequence"]
+
+            frames = {t: {} for t in range(1, total_frames + 1)}
+            for i in range(len(sequence)):
+                kf0 = sequence[i]
+                kf1 = sequence[i+1] if i < len(sequence) - 1 else sequence[i]
+
+                # LS 原始数据只有关键帧
+                # 需要通过插值逻辑补充过渡帧
+                for f, bbox in interpolate_sequence(kf0, kf1).items():
+                    frames[f] = bbox
+
+            objects.append({"label": label, "frames": frames})
 
         for action in item.get("actions", []):
-            ranges = action["ranges"]
-            for range in ranges:
-                label = f'{action["timelinelabels"][0]}'  # no multiple labels
-                start, end = range["start"], range["end"]
-                action_ranges.append((start, end, label))
+            label = action["timelinelabels"][0]  # no multiple labels  
+            rg = action["ranges"][0]             # no multiple ranges
+            start, end = rg["start"], rg["end"]
 
-        features = to_features(objects)
-        truths = to_truths(action_ranges, total)
-        return features, truths
-    
-    raise ValueError(f"Id {id} not found")
+            actions.append({"label": label, "range": (start, end)})
+
+        results[item["id"]] = {
+            "objects": merge_objects(objects, total_frames),
+            "actions": merge_actions(actions, total_frames),
+        }
+
+    return results
