@@ -105,7 +105,7 @@ def from_ls_json(file_path: str, download: bool = False) -> Dict[int, Dict]:
         以视频 ID（Label Studio 的 task id）为键的字典，每个视频包含：
         - "objects" : dict
             目标轨迹信息，结构为
-            { frame_id: { "label": str, "bbox": (x, y, w, h) } }
+            { frame_id: { "label": str, "bbox": (x, y, w, h, r) } }
 
         - "actions" : dict
             行为时间段信息，结构为
@@ -185,7 +185,7 @@ def from_ls_json_min(file_path: str, download: bool = False) -> Dict[int, Dict]:
         以视频 ID（Label Studio 的 task id）为键的字典，每个视频包含：
         - "objects" : dict
             目标轨迹信息，结构为
-            { frame_id: { "label": str, "bbox": (x, y, w, h) } }
+            { frame_id: { "label": str, "bbox": (x, y, w, h, r) } }
 
         - "actions" : dict
             行为时间段信息，结构为

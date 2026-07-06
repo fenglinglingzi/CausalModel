@@ -56,7 +56,7 @@ def to_features(objects: Dict) -> np.ndarray:
         for (label, bbox) in data:
             # TODO: 根据 mapping 和 label 放置 bbox
             if bbox:
-                x, y, w, h = bbox
+                x, y, w, h, _ = bbox
                 cx, cy = x + w / 2, y + h / 2
                 # Label Studio 返回的是归一化后的数据
                 feats.extend([cx, cy, w, h, 1.0])
