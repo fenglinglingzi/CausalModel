@@ -161,11 +161,9 @@ def eval(
         f1_scores[o] = f1 * 100
 
     model_name = config["model"]["name"]
-    model_path = config["model"]["model_path"]
     result = {
         "timestamp": get_current_timestamp(),
-        "model": model_name,
-        "path": model_path,
+        "model": config["model"],
         "num_params": sum(p.numel() for p in model.parameters()),
         "acc": round(acc, 2),
         "edit": round(edit, 2),
