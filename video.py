@@ -63,16 +63,28 @@ def plot_labeled_data(
                 if not bbox:
                     continue
 
-                x, y, w, h = bbox
+                x, y, w, h, r = bbox
                 # 百分比 → 像素
                 x1 = int(round(x / 100.0 * W))
                 y1 = int(round(y / 100.0 * H))
                 x2 = int(round((x + w) / 100.0 * W))
                 y2 = int(round((y + h) / 100.0 * H))
 
+                # 四个角点（未旋转，左上角为原点）
+                pts = np.array([
+                    [x1, y1],
+                    [x2, y1],
+                    [x2, y2],
+                    [x1, y2],
+                ], dtype=np.float32)
+
+                # 绕左上角 (x, y) 旋转
+                M = cv2.getRotationMatrix2D((x1, y1), -r, 1.0)
+                rot_pts = cv2.transform(pts[None, :, :], M)[0]
+
                 color = color_map[obj["label"]]
 
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.drawContours(frame, [rot_pts.astype(np.int32)], -1, color, 2)
                 cv2.putText(frame, obj["label"], (x1, max(y1 - 6, 12)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1
                 )
