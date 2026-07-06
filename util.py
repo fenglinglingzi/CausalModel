@@ -191,10 +191,24 @@ def plot_temporal_results(
     ax.broken_barh([(i, 1) for i in range(len(pred_ids))], (0.2, 0.8), 
                    facecolors=[plt.cm.tab20(i % 20) for i in pred_ids])
 
+    # 模型信息格式化
+    model_info = metadata["model"]
+
+    param_lines = "\n".join(
+        f"    {k}={v}" for k, v in model_info["params"].items()
+    )
+
+    model_block = (
+        f"\n"
+        f"  name={model_info['name']}\n"
+        f"  class={model_info['class']}\n"
+        f"  model_path={model_info['model_path']}\n"
+        f"  params:\n{param_lines}"
+    )
+
     metrics_text = (
         f"timestamp: {metadata['timestamp']}\n"
-        f"model: {metadata['model']}\n"
-        f"path: {metadata['path']}\n"
+        f"model: {model_block}\n"
         f"num_params: {metadata['num_params']}\n"
         f"Acc: {metadata['acc']:.2f}\n"
         f"Edit: {metadata['edit']:.2f}\n"
